@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { getCoinChart, type ChartData } from "@/lib/api"
 import { formatCurrency } from "@/lib/utils"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+import { AlertCircle, RefreshCw } from "lucide-react"
 
 interface PriceChartProps {
   coinId: string
@@ -22,25 +23,42 @@ const timeRanges = [
 export function PriceChart({ coinId }: PriceChartProps) {
   const [chartData, setChartData] = useState<ChartData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [selectedRange, setSelectedRange] = useState("7")
 
-  useEffect(() => {
-    const fetchChartData = async () => {
-      try {
-        setLoading(true)
-        setChartData(null) // Clear previous data
-        const data = await getCoinChart(coinId, selectedRange)
-        setChartData(data)
-      } catch (error) {
-        console.error("Error fetching chart data:", error)
-        // Don't show error toast for chart failures, just show fallback
-        setChartData(null)
-      } finally {
-        setLoading(false)
-      }
-    }
+  const fetchChartData = async (range: string, retryCount = 0) => {
+    try {
+      setLoading(true)
+      setError(null)
+      setChartData(null)
 
-    fetchChartData()
+      const data = await getCoinChart(coinId, range)
+
+      // Validate data
+      if (!data || !data.prices || data.prices.length === 0) {
+        throw new Error("No chart data available")
+      }
+
+      setChartData(data)
+    } catch (error) {
+      console.error("Error fetching chart data:", error)
+
+      // If 24h fails and this is first attempt, try 7d instead
+      if (range === "1" && retryCount === 0) {
+        console.log("24h failed, falling back to 7d...")
+        await fetchChartData("7", 1)
+        return
+      }
+
+      setError(error instanceof Error ? error.message : "Failed to load chart data")
+      setChartData(null)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchChartData(selectedRange)
   }, [coinId, selectedRange])
 
   const formatChartData = () => {
@@ -62,6 +80,10 @@ export function PriceChart({ coinId }: PriceChartProps) {
     return date.toLocaleDateString()
   }
 
+  const handleRetry = () => {
+    fetchChartData(selectedRange)
+  }
+
   if (loading) {
     return (
       <Card>
@@ -80,7 +102,7 @@ export function PriceChart({ coinId }: PriceChartProps) {
     )
   }
 
-  if (!chartData || !chartData.prices || chartData.prices.length === 0) {
+  if (error || !chartData || !chartData.prices || chartData.prices.length === 0) {
     return (
       <Card>
         <CardHeader>
@@ -92,6 +114,7 @@ export function PriceChart({ coinId }: PriceChartProps) {
                 variant={selectedRange === range.value ? "default" : "outline"}
                 size="sm"
                 onClick={() => setSelectedRange(range.value)}
+                disabled={loading}
               >
                 {range.label}
               </Button>
@@ -100,9 +123,18 @@ export function PriceChart({ coinId }: PriceChartProps) {
         </CardHeader>
         <CardContent>
           <div className="h-[400px] flex items-center justify-center">
-            <div className="text-center">
-              <p className="text-muted-foreground">Chart data temporarily unavailable</p>
-              <p className="text-sm text-muted-foreground mt-1">Please try again in a moment</p>
+            <div className="text-center space-y-4">
+              <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto" />
+              <div>
+                <p className="text-muted-foreground">{error || "Chart data temporarily unavailable"}</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  This may be due to API rate limits. Please try again.
+                </p>
+              </div>
+              <Button onClick={handleRetry} variant="outline" size="sm">
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Retry
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -124,6 +156,7 @@ export function PriceChart({ coinId }: PriceChartProps) {
               variant={selectedRange === range.value ? "default" : "outline"}
               size="sm"
               onClick={() => setSelectedRange(range.value)}
+              disabled={loading}
             >
               {range.label}
             </Button>
