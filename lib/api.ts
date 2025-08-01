@@ -79,8 +79,8 @@ export interface ChartData {
 const apiRequest = async (endpoint: string, retries = 3) => {
   for (let i = 0; i < retries; i++) {
     try {
-      // Add delay to avoid rate limiting
-      if (i > 0) await delay(1000 * i)
+      // Add delay to avoid rate limiting, especially for chart requests
+      if (i > 0) await delay(2000 * i)
 
       const response = await fetch(`${BASE_URL}${endpoint}`, {
         headers: {
@@ -89,8 +89,9 @@ const apiRequest = async (endpoint: string, retries = 3) => {
       })
 
       if (response.status === 429) {
-        // Rate limited, wait and retry
-        await delay(2000)
+        // Rate limited, wait longer and retry
+        console.log("Rate limited, waiting...")
+        await delay(5000)
         continue
       }
 
@@ -100,8 +101,9 @@ const apiRequest = async (endpoint: string, retries = 3) => {
 
       return response.json()
     } catch (error) {
+      console.error(`API request attempt ${i + 1} failed:`, error)
       if (i === retries - 1) throw error
-      await delay(1000)
+      await delay(2000)
     }
   }
 }
@@ -122,11 +124,23 @@ export const getCoinDetail = async (id: string): Promise<CoinDetail> => {
 }
 
 export const getCoinChart = async (id: string, days = "7"): Promise<ChartData> => {
-  // Add delay before chart requests
-  await delay(500)
-  return apiRequest(
-    `/coins/${id}/market_chart?vs_currency=usd&days=${days}&interval=${days === "1" ? "hourly" : "daily"}`,
-  )
+  // Add longer delay for chart requests as they seem to be more rate limited
+  await delay(1000)
+
+  // For 24h data, use different interval to avoid issues
+  const interval = days === "1" ? "hourly" : days === "7" ? "daily" : "daily"
+
+  try {
+    return await apiRequest(`/coins/${id}/market_chart?vs_currency=usd&days=${days}&interval=${interval}`)
+  } catch (error) {
+    // If 24h fails, try with a slightly different approach
+    if (days === "1") {
+      console.log("24h chart failed, trying alternative approach...")
+      await delay(2000)
+      return await apiRequest(`/coins/${id}/market_chart?vs_currency=usd&days=1`)
+    }
+    throw error
+  }
 }
 
 export const searchCoins = async (query: string) => {
